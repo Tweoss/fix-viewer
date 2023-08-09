@@ -1,7 +1,7 @@
 [package]
-name = "eframe_template"
+name = "fix_viewer"
 version = "0.1.0"
-authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
+authors = ["Francis Chua <fqchua@stanford.edu>"]
 edition = "2021"
 rust-version = "1.65"
 
@@ -18,6 +18,8 @@ log = "0.4"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
+anyhow = "1.0.72"
+ehttp = "0.3.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
