@@ -7,9 +7,8 @@ rust-version = "1.65"
 
 
 [dependencies]
-egui = "0.22.0"
-eframe = { version = "0.22.0", default-features = false, features = [
-    "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
+egui = { path = "../egui/crates/egui" }
+eframe = { path = "../egui/crates/eframe", default-features = false, features = [
     "default_fonts", # Embed the default egui fonts.
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
@@ -19,11 +18,12 @@ log = "0.4"
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 anyhow = "1.0.72"
-ehttp = "0.3.0"
+reqwest = { version = "0.11", features = ["json"]}
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.10"
+tokio = { version = "1", features = ["rt"]}
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -36,7 +36,6 @@ opt-level = 2 # fast and small wasm
 # Optimize all dependencies even in debug builds:
 [profile.dev.package."*"]
 opt-level = 2
-
 
 [patch.crates-io]
 

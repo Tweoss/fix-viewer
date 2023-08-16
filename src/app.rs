@@ -1,8 +1,20 @@
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{
+    mpsc::{channel, Receiver, Sender},
+    Arc,
+};
 
-use egui::TextEdit;
+use anyhow::Result;
+use egui::{
+    plot::{Line, Plot},
+    Color32, Stroke, TextEdit,
+};
+use reqwest::Client;
 
-use crate::handle::Handle;
+use crate::{
+    handle::Handle,
+    http::{self, Response},
+    plot::Graph,
+};
 
 pub struct App {
     state: State,
@@ -31,8 +43,10 @@ struct State {
     response: String,
     error: String,
     first_render: bool,
-    response_tx: Sender<ehttp::Result<ehttp::Response>>,
-    response_rx: Receiver<ehttp::Result<ehttp::Response>>,
+    client: Arc<Client>,
+    response_tx: Sender<Result<http::Response>>,
+    response_rx: Receiver<Result<http::Response>>,
+    graph: Graph,
 }
 
 impl Default for State {
@@ -43,8 +57,10 @@ impl Default for State {
             response: String::new(),
             error: String::new(),
             first_render: true,
+            client: Arc::new(Client::new()),
             response_tx: tx,
             response_rx: rx,
+            graph: Graph::new("dependency_graph"),
         }
     }
 }
@@ -83,8 +99,10 @@ impl eframe::App for App {
             response,
             error,
             first_render,
+            client,
             response_tx: tx,
             response_rx: rx,
+            graph,
         } = &mut self.state;
 
         #[cfg(not(target_arch = "wasm32"))] // no File->Quit on web pages!
@@ -121,38 +139,52 @@ impl eframe::App for App {
                     .show(ui)
                     .response
                     .changed()
+                    || *first_render
                 {
                     match Handle::from_hex(&target_input) {
                         Ok(h) => {
                             error.clear();
-                            storage.target = h;
+                            storage.target = h.clone();
+                            log::error!("BONNNNJOUR valid handle");
+                            graph.set_main_handle(ui, h);
+                            // objects.truncate(1);
+                            // objects[0].update_text(ui, storage.target.to_hex());
                         }
-                        Err(_) => todo!(),
+                        Err(e) => *error = format!("{:#}", e),
                     }
                 }
             });
 
             if ui.button("Get Parent").clicked() {
-                let request = ehttp::Request::get(format!(
-                    "http://{}/parents?handle={}",
-                    storage.url,
-                    storage.target.to_hex(),
-                ));
-                let tx_clone = tx.clone();
-                ehttp::fetch(request, move |result: ehttp::Result<ehttp::Response>| {
-                    tx_clone.send(result).unwrap();
-                })
+                http::get_parents(
+                    client.clone(),
+                    ctx.clone(),
+                    storage.target.clone(),
+                    tx.clone(),
+                    &storage.url,
+                );
             }
 
             if let Ok(http_result) = rx.try_recv() {
                 match http_result {
-                    Ok(v) => *response = v.text().unwrap().to_string(),
-                    Err(e) => *error = e,
+                    Ok(Response::Parents(tasks)) => {
+                        *response = tasks
+                            .iter()
+                            .map(|task| task.to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        for (i, task) in tasks.iter().enumerate() {
+                            todo!()
+                        }
+                    }
+                    Err(e) => *error = format!("{:#}", e),
+                    _ => todo!(),
                 }
             }
 
             ui.separator();
             ui.label(response.as_str());
+            ui.label(error.as_str());
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
@@ -170,7 +202,15 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
+            Plot::new("view_plot").data_aspect(1.0).show(ui, |plot_ui| {
+                plot_ui.add(graph.clone());
+                plot_ui.line(Line::new(vec![[1.0, 1.0], [0.5, 0.0]]));
+                // Give the stroke an automatic color if no color has been assigned.
+                let line = Line::new(vec![[1.0, 1.0], [0.0, 0.0]])
+                    .stroke(Stroke::new(0.2, Color32::WHITE));
+                plot_ui.add(line);
+                plot_ui.transform().dpos_dvalue_x() as f32
+            });
 
             ui.heading("eframe template");
             ui.hyperlink("https://github.com/emilk/eframe_template");

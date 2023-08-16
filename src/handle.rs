@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{convert::TryFrom, fmt::Display};
 
 use anyhow::{bail, ensure, Context, Result};
 
@@ -12,13 +12,26 @@ const LITERAL_CONTENT_LENGTH: usize = HANDLE_LENGTH - METADATA_LENGTH;
 const CANONICAL_HASH_LENGTH: usize = HANDLE_LENGTH - UINT64_LENGTH - METADATA_LENGTH;
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Handle {
-    size: u64,
-    accessibility: Accessibility,
-    content: Content,
+pub(crate) struct Task {
+    pub(crate) handle: Handle,
+    pub(crate) operation: Operation,
 }
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub(crate) enum Operation {
+    Apply,
+    Eval,
+    Fill,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub(crate) struct Handle {
+    pub(crate) size: u64,
+    pub(crate) accessibility: Accessibility,
+    pub(crate) content: Content,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Content {
     Other {
         object_type: Object,
@@ -27,7 +40,7 @@ pub(crate) enum Content {
     Literal([u8; LITERAL_CONTENT_LENGTH]),
 }
 
-#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Nonliteral {
     Canonical([u8; CANONICAL_HASH_LENGTH]),
     Local(u64),
@@ -40,60 +53,12 @@ pub(crate) enum Accessibility {
     Lazy,
 }
 
-impl TryFrom<u8> for Accessibility {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Self::Strict,
-            1 => Self::Shallow,
-            2 => Self::Lazy,
-            _ => bail!("Invalid number for Accessibility"),
-        })
-    }
-}
-
-impl Into<u8> for Accessibility {
-    fn into(self) -> u8 {
-        match self {
-            Accessibility::Strict => 0,
-            Accessibility::Shallow => 1,
-            Accessibility::Lazy => 2,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Object {
     Blob,
     Tree,
     Thunk,
     Tag,
-}
-
-impl TryFrom<u8> for Object {
-    type Error = anyhow::Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Self::Tree,
-            1 => Self::Thunk,
-            2 => Self::Blob,
-            3 => Self::Tag,
-            _ => bail!("Invalid number for Object"),
-        })
-    }
-}
-
-impl Into<u8> for Object {
-    fn into(self) -> u8 {
-        match self {
-            Object::Tree => 0,
-            Object::Thunk => 1,
-            Object::Blob => 2,
-            Object::Tag => 3,
-        }
-    }
 }
 
 impl Handle {
@@ -216,6 +181,103 @@ impl Handle {
         }
 
         out_content
+    }
+}
+
+impl Display for Task {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{}: {}", self.handle.to_hex(), self.operation))
+    }
+}
+
+impl TryFrom<u8> for Operation {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Apply,
+            1 => Self::Eval,
+            2 => Self::Fill,
+            _ => bail!("Invalid number for Operation"),
+        })
+    }
+}
+
+impl Into<u8> for Operation {
+    fn into(self) -> u8 {
+        match self {
+            Operation::Apply => 0,
+            Operation::Eval => 1,
+            Operation::Fill => 2,
+        }
+    }
+}
+
+impl Display for Operation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Operation::Apply => "Apply",
+            Operation::Eval => "Eval",
+            Operation::Fill => "Fill",
+        })
+    }
+}
+
+impl Handle {
+    pub(crate) fn get_literal_content<'a>(&'a self) -> Option<&'a [u8]> {
+        if let Content::Literal(ref content) = self.content {
+            Some(&content[..self.size as usize])
+        } else {
+            None
+        }
+    }
+}
+
+impl TryFrom<u8> for Accessibility {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Strict,
+            1 => Self::Shallow,
+            2 => Self::Lazy,
+            _ => bail!("Invalid number for Accessibility"),
+        })
+    }
+}
+
+impl Into<u8> for Accessibility {
+    fn into(self) -> u8 {
+        match self {
+            Accessibility::Strict => 0,
+            Accessibility::Shallow => 1,
+            Accessibility::Lazy => 2,
+        }
+    }
+}
+
+impl TryFrom<u8> for Object {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Tree,
+            1 => Self::Thunk,
+            2 => Self::Blob,
+            3 => Self::Tag,
+            _ => bail!("Invalid number for Object"),
+        })
+    }
+}
+
+impl Into<u8> for Object {
+    fn into(self) -> u8 {
+        match self {
+            Object::Tree => 0,
+            Object::Thunk => 1,
+            Object::Blob => 2,
+            Object::Tag => 3,
+        }
     }
 }
 

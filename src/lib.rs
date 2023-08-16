@@ -2,4 +2,7 @@
 
 mod app;
 mod handle;
+mod http;
+mod plot;
+
 pub use app::App;
