@@ -1,103 +1,26 @@
-use eframe::epaint::{ClippedShape, Primitive, TextShape};
+use eframe::epaint::{ClippedShape, Primitive, RectShape, TextShape};
 use egui::{
-    plot::{
-        items::{
-            values::{ClosestElem, PlotGeometry},
-            PlotConfig, PlotItem,
-        },
-        LabelFormatter, PlotBounds, PlotPoint, PlotTransform,
-    },
+    plot::{PlotBounds, PlotPoint, PlotTransform},
     Color32, Mesh, Pos2, Rect, RichText, Shape, Stroke, TextStyle, Ui, WidgetText,
 };
 
-use crate::handle::Handle;
-
-impl Graph {
-    pub(crate) fn new(name: impl ToString) -> Self {
-        Self {
-            name: name.to_string(),
-            main: None,
-            parents: Vec::new(),
-        }
-    }
-
-    pub(crate) fn set_main_handle(&mut self, ui: &Ui, handle: Handle) {
-        self.main = Some(HandleBox::new(ui, handle));
-    }
-}
-
 #[derive(Clone)]
-pub struct Graph {
-    name: String,
-    main: Option<HandleBox>,
-    parents: Vec<HandleBox>,
-}
-
-impl PlotItem for Graph {
-    fn shapes(&self, ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
-        if let Some(handle) = &self.main {
-            handle.add_shapes(transform, shapes, PlotPoint::new(0.0, 3.0), false)
-        }
-    }
-
-    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn color(&self) -> Color32 {
-        Color32::RED
-    }
-
-    fn highlight(&mut self) {}
-
-    fn highlighted(&self) -> bool {
-        false
-    }
-
-    fn geometry(&self) -> PlotGeometry<'_> {
-        PlotGeometry::Rects
-    }
-
-    fn find_closest(&self, point: Pos2, transform: &PlotTransform) -> Option<ClosestElem> {
-        // TODO
-        None
-    }
-
-    fn on_hover(
-        &self,
-        elem: ClosestElem,
-        shapes: &mut Vec<Shape>,
-        cursors: &mut Vec<egui::plot::Cursor>,
-        plot: &PlotConfig<'_>,
-        label_formatter: &LabelFormatter,
-    ) {
-        // TODO
-    }
-
-    fn bounds(&self) -> PlotBounds {
-        let mut bounds = PlotBounds::NOTHING;
-        if let Some(main) = &self.main {
-            bounds.merge(&main.bounds());
-        }
-        bounds
-    }
-}
-
-#[derive(Clone)]
-struct HandleBox {
-    inner: Handle,
+pub(crate) struct Element {
+    text: String,
     mesh: Mesh,
     mesh_bounds: Rect,
+    point: PlotPoint,
+    zoom: f32,
 }
 
-impl HandleBox {
+impl Element {
     const TEXT_RENDER_SCALE: f32 = 30.0;
-    const RECT_EXTENSION: f32 = 0.3;
+    const RECT_EXTENSION: f32 = 0.02;
+    /// The number of pixels just a full rendered handle takes.
+    /// Used to scale the text.
+    const TEXT_PIXEL_SCALE: f32 = 40.0;
 
-    fn new(ui: &Ui, handle: Handle) -> Self {
-        let text = handle.to_hex();
+    pub(crate) fn new(ui: &Ui, text: String, point: PlotPoint, zoom: f32) -> Self {
         let rich_text = RichText::new(&text)
             .size(Self::TEXT_RENDER_SCALE)
             .monospace()
@@ -123,45 +46,53 @@ impl HandleBox {
             mesh.translate(-mid_point);
             mesh.vertices.iter_mut().for_each(|v| {
                 v.pos = Pos2::new(
-                    v.pos.x / Self::TEXT_RENDER_SCALE,
-                    v.pos.y / Self::TEXT_RENDER_SCALE,
+                    v.pos.x / Self::TEXT_RENDER_SCALE / Self::TEXT_PIXEL_SCALE,
+                    v.pos.y / Self::TEXT_RENDER_SCALE / Self::TEXT_PIXEL_SCALE,
                 );
             });
             Self {
-                inner: handle,
+                text,
                 mesh_bounds: mesh.calc_bounds().expand(Self::RECT_EXTENSION),
                 mesh,
+                point,
+                zoom,
             }
         } else {
             panic!("Tessellated text should be a mesh")
         }
     }
 
-    fn add_shapes(
+    fn graph_pos_to_screen_pos(
+        position: Pos2,
+        transform: &PlotTransform,
+        zoom: f32,
+        center: PlotPoint,
+    ) -> Pos2 {
+        let screen_center = transform.position_from_point(&center);
+        Pos2::new(
+            position.x * transform.dpos_dvalue_x() as f32 * zoom + screen_center.x,
+            -position.y * transform.dpos_dvalue_y() as f32 * zoom + screen_center.y,
+        )
+    }
+
+    pub(crate) fn add_shapes(
         &self,
         transform: &PlotTransform,
         shapes: &mut Vec<Shape>,
-        placement: PlotPoint,
         highlight: bool,
     ) {
-        let scale_transform = |pos: Pos2| -> Pos2 {
-            Pos2::new(
-                pos.x * transform.dpos_dvalue_x() as f32,
-                -pos.y * transform.dpos_dvalue_y() as f32,
-            )
+        let transform = |pos: Pos2| -> Pos2 {
+            Self::graph_pos_to_screen_pos(pos, transform, self.zoom, self.point)
         };
-        let translation = transform.position_from_point(&placement).to_vec2();
 
         let mut mesh = self.mesh.clone();
         mesh.vertices.iter_mut().for_each(|v| {
-            v.pos = scale_transform(v.pos);
+            v.pos = transform(v.pos);
         });
-        mesh.translate(transform.position_from_point(&placement).to_vec2());
 
         let mut mesh_bounds = self.mesh_bounds.clone();
-        mesh_bounds.min = scale_transform(mesh_bounds.min);
-        mesh_bounds.max = scale_transform(mesh_bounds.max);
-        mesh_bounds = mesh_bounds.translate(translation);
+        mesh_bounds.min = transform(mesh_bounds.min);
+        mesh_bounds.max = transform(mesh_bounds.max);
 
         shapes.push(Shape::Mesh(mesh.clone()));
         shapes.push(Shape::rect_stroke(
@@ -174,11 +105,35 @@ impl HandleBox {
         }
     }
 
-    fn bounds(&self) -> PlotBounds {
-        let rect = self.mesh_bounds;
-        PlotBounds::from_min_max(
-            [rect.min.x.into(), rect.min.y.into()],
-            [rect.max.x.into(), rect.max.y.into()],
-        )
+    pub(crate) fn add_highlight(&self, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+        let transform = transform;
+        let scale_transform = |pos: Pos2| -> Pos2 {
+            Pos2::new(
+                pos.x * transform.dpos_dvalue_x() as f32 * self.zoom,
+                -pos.y * transform.dpos_dvalue_y() as f32 * self.zoom,
+            )
+        };
+        let translation = transform.position_from_point(&self.point).to_vec2();
+        let mut mesh_bounds = self.mesh_bounds.clone();
+        mesh_bounds.min = scale_transform(mesh_bounds.min);
+        mesh_bounds.max = scale_transform(mesh_bounds.max);
+        mesh_bounds = mesh_bounds.translate(translation);
+
+        shapes.push(RectShape::filled(mesh_bounds, 1.0, Color32::BLUE.gamma_multiply(0.2)).into())
+    }
+
+    pub(crate) fn bounds(&self) -> PlotBounds {
+        let mut rect = self.mesh_bounds;
+
+        assert!(rect.center() == Pos2::ZERO);
+        rect.min = (rect.min.to_vec2() * self.zoom + self.point.to_vec2()).to_pos2();
+        rect.max = (rect.max.to_vec2() * self.zoom + self.point.to_vec2()).to_pos2();
+
+        // Reverse the y axis because of rect vs plot coordinates.
+        let bounds = PlotBounds::from_min_max(
+            [rect.left().into(), rect.top().into()],
+            [rect.right().into(), rect.bottom().into()],
+        );
+        bounds
     }
 }

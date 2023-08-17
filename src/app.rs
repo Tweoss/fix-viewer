@@ -4,16 +4,13 @@ use std::sync::{
 };
 
 use anyhow::Result;
-use egui::{
-    plot::{Line, Plot},
-    Color32, Stroke, TextEdit,
-};
+use egui::{plot::Plot, TextEdit};
 use reqwest::Client;
 
 use crate::{
+    graph::Graph,
     handle::Handle,
     http::{self, Response},
-    plot::Graph,
 };
 
 pub struct App {
@@ -145,10 +142,7 @@ impl eframe::App for App {
                         Ok(h) => {
                             error.clear();
                             storage.target = h.clone();
-                            log::error!("BONNNNJOUR valid handle");
                             graph.set_main_handle(ui, h);
-                            // objects.truncate(1);
-                            // objects[0].update_text(ui, storage.target.to_hex());
                         }
                         Err(e) => *error = format!("{:#}", e),
                     }
@@ -168,14 +162,7 @@ impl eframe::App for App {
             if let Ok(http_result) = rx.try_recv() {
                 match http_result {
                     Ok(Response::Parents(tasks)) => {
-                        *response = tasks
-                            .iter()
-                            .map(|task| task.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        for (i, task) in tasks.iter().enumerate() {
-                            todo!()
-                        }
+                        graph.set_parents(ui, tasks);
                     }
                     Err(e) => *error = format!("{:#}", e),
                     _ => todo!(),
@@ -202,23 +189,16 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            Plot::new("view_plot").data_aspect(1.0).show(ui, |plot_ui| {
-                plot_ui.add(graph.clone());
-                plot_ui.line(Line::new(vec![[1.0, 1.0], [0.5, 0.0]]));
-                // Give the stroke an automatic color if no color has been assigned.
-                let line = Line::new(vec![[1.0, 1.0], [0.0, 0.0]])
-                    .stroke(Stroke::new(0.2, Color32::WHITE));
-                plot_ui.add(line);
-                plot_ui.transform().dpos_dvalue_x() as f32
-            });
-
-            ui.heading("eframe template");
-            ui.hyperlink("https://github.com/emilk/eframe_template");
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/master/",
-                "Source code."
-            ));
-            egui::warn_if_debug_build(ui);
+            Plot::new("view_plot")
+                .data_aspect(1.0)
+                .auto_bounds_x()
+                .auto_bounds_y()
+                .show_axes([true; 2])
+                .show_x(false)
+                .show_y(false)
+                .show(ui, |plot_ui| {
+                    plot_ui.add(graph.clone());
+                });
         });
 
         *first_render = false;
