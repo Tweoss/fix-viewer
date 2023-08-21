@@ -11,13 +11,13 @@ const HANDLE_LENGTH: usize = 32;
 const LITERAL_CONTENT_LENGTH: usize = HANDLE_LENGTH - METADATA_LENGTH;
 const CANONICAL_HASH_LENGTH: usize = HANDLE_LENGTH - UINT64_LENGTH - METADATA_LENGTH;
 
-#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Clone)]
 pub(crate) struct Task {
     pub(crate) handle: Handle,
     pub(crate) operation: Operation,
 }
 
-#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize, Clone, Copy)]
 pub(crate) enum Operation {
     Apply,
     Eval,
@@ -77,8 +77,7 @@ impl Handle {
         let handle_content: [u64; 4] = handle_content.try_into().unwrap();
         let handle_content: [u8; HANDLE_LENGTH] = handle_content
             .into_iter()
-            .map(|i| i.to_le_bytes().into_iter())
-            .flatten()
+            .flat_map(|i| i.to_le_bytes().into_iter())
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
@@ -203,9 +202,9 @@ impl TryFrom<u8> for Operation {
     }
 }
 
-impl Into<u8> for Operation {
-    fn into(self) -> u8 {
-        match self {
+impl From<Operation> for u8 {
+    fn from(val: Operation) -> Self {
+        match val {
             Operation::Apply => 0,
             Operation::Eval => 1,
             Operation::Fill => 2,
@@ -224,7 +223,7 @@ impl Display for Operation {
 }
 
 impl Handle {
-    pub(crate) fn get_literal_content<'a>(&'a self) -> Option<&'a [u8]> {
+    pub(crate) fn get_literal_content(&self) -> Option<&[u8]> {
         if let Content::Literal(ref content) = self.content {
             Some(&content[..self.size as usize])
         } else {
@@ -270,9 +269,9 @@ impl TryFrom<u8> for Object {
     }
 }
 
-impl Into<u8> for Object {
-    fn into(self) -> u8 {
-        match self {
+impl From<Object> for u8 {
+    fn from(val: Object) -> Self {
+        match val {
             Object::Tree => 0,
             Object::Thunk => 1,
             Object::Blob => 2,
