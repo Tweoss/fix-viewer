@@ -25,9 +25,9 @@ impl Graph {
     /// Defines an ordering of the elements in a graph. Used for referencing
     /// from a ClosestElem.
     /// ```
-    ///     pp0 = 4  pp1 = 5
+    ///     pp0 = 3  pp1 = 4
     ///          \    /
-    ///  p0 = 1  p1 = 2  p2 = 3
+    ///  p0 = 1  p1 = 2  p2 = 5
     ///      \     |    /  
     ///        main = 0
     ///
@@ -199,6 +199,8 @@ impl PlotItem for Graph {
 }
 
 mod ancestors {
+    use std::fmt::Display;
+
     use egui::plot::PlotPoint;
 
     use crate::{handle::Handle, plot::Element};
@@ -214,6 +216,19 @@ mod ancestors {
     pub struct Ancestor {
         content: Element,
         parents: Vec<Ancestor>,
+    }
+
+    impl Display for Ancestor {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_fmt(format_args!(
+                "{{content: {}, parents: [",
+                self.content.get_text()
+            ))?;
+            for parent in &self.parents {
+                f.write_fmt(format_args!("{}, ", parent))?;
+            }
+            f.write_str("]}")
+        }
     }
 
     impl MainAncestor {
@@ -268,7 +283,7 @@ mod ancestors {
                     *index -= 1;
                     // Depth first
                     if let Some(mut list) = get_location_rec(&el.parents, index) {
-                        list.push(*index);
+                        list.push(i);
                         return Some(list);
                     }
                     None
@@ -285,7 +300,7 @@ mod ancestors {
             let mut pos = [0.0, 0.0];
             let mut scale = 1.0;
             let mut current_generation = self.inner.as_slice();
-            for index in lineage {
+            for lineage_index in &lineage {
                 // Scale y for this generation
                 scale /= current_generation.len() as f32;
                 // Increase y
@@ -295,11 +310,11 @@ mod ancestors {
                 // |  0  |  1  |  2  |  3  |
                 let step_size = scale;
                 let x_step_offset_to_left_edge =
-                    index as f32 - (current_generation.len() as f32) * 0.5;
+                    *lineage_index as f32 - (current_generation.len() as f32) * 0.5;
                 let x_step_offset_to_center = x_step_offset_to_left_edge + 0.5;
                 pos[0] += step_size * x_step_offset_to_center;
 
-                current_generation = current_generation[index].parents.as_slice();
+                current_generation = current_generation[*lineage_index].parents.as_slice();
             }
 
             (PlotPoint::new(pos[0], pos[1]), scale)
