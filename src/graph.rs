@@ -32,7 +32,7 @@ impl Graph {
     ///        main = 0
     ///
     /// ```
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Element> {
+    pub fn iter(&self) -> impl Iterator<Item = &Element> {
         let iter = std::iter::empty();
         // Main handle and associated ancestors.
         let iter = iter.chain(self.main.iter().flat_map(|a| a.iter()));
@@ -99,7 +99,7 @@ impl Graph {
         ui: &Ui,
         coords: PlotPoint,
         closest_elem: ClosestElem,
-        request: impl FnOnce(&Handle) -> (),
+        request: impl FnOnce(&Handle),
     ) {
         let Some(elem) = self.iter().nth(closest_elem.index) else {
             log::error!("Handling a click near to an element whose index no longer exists");
@@ -112,7 +112,7 @@ impl Graph {
         let p = coords;
         let elem_contains_p = min_x <= p.x && p.x <= max_x && min_y <= p.y && p.y <= max_y;
         if elem_contains_p {
-            ui.output_mut(|o| o.copied_text = elem.get_text().to_owned());
+            ui.output_mut(|o| o.copied_text = elem.get_text());
             log::info!("Requesting parents");
             request(elem.get_handle());
         };

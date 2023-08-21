@@ -55,6 +55,7 @@ pub(crate) fn get<T, S, F>(
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(task);
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::let_underscore_future)]
     let _ = tokio::spawn(task);
 }
 

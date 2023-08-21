@@ -29,7 +29,7 @@ impl Element {
     const TEXT_PIXEL_SCALE: f32 = 40.0;
 
     pub(crate) fn new(ui: &Ui, content: ElementContent) -> Self {
-        let rich_text = RichText::new(&content.to_string())
+        let rich_text = RichText::new(content.to_string())
             .size(Self::TEXT_RENDER_SCALE)
             .monospace()
             .color(Color32::WHITE);
@@ -62,8 +62,6 @@ impl Element {
                 content,
                 mesh_bounds: mesh.calc_bounds().expand(Self::RECT_EXTENSION),
                 mesh,
-                // point,
-                // zoom,
             }
         } else {
             panic!("Tessellated text should be a mesh")
@@ -98,7 +96,7 @@ impl Element {
             v.pos = transform(v.pos);
         });
 
-        let mut mesh_bounds = self.mesh_bounds.clone();
+        let mut mesh_bounds = self.mesh_bounds;
         mesh_bounds.min = transform(mesh_bounds.min);
         mesh_bounds.max = transform(mesh_bounds.max);
 
@@ -127,7 +125,7 @@ impl Element {
             )
         };
         let translation = transform.position_from_point(&center).to_vec2();
-        let mut mesh_bounds = self.mesh_bounds.clone();
+        let mut mesh_bounds = self.mesh_bounds;
         mesh_bounds.min = scale_transform(mesh_bounds.min);
         mesh_bounds.max = scale_transform(mesh_bounds.max);
         mesh_bounds = mesh_bounds.translate(translation);
@@ -143,11 +141,10 @@ impl Element {
         rect.max = (rect.max.to_vec2() * zoom + center.to_vec2()).to_pos2();
 
         // Reverse the y axis because of rect vs plot coordinates.
-        let bounds = PlotBounds::from_min_max(
+        PlotBounds::from_min_max(
             [rect.left().into(), rect.top().into()],
             [rect.right().into(), rect.bottom().into()],
-        );
-        bounds
+        )
     }
 
     pub(crate) fn get_text(&self) -> String {
@@ -156,8 +153,8 @@ impl Element {
 
     pub(crate) fn get_handle(&self) -> &Handle {
         match &self.content {
-            ElementContent::Handle(h) => &h,
-            ElementContent::Task(Task { handle, .. }) => &handle,
+            ElementContent::Handle(h) => h,
+            ElementContent::Task(Task { handle, .. }) => handle,
         }
     }
 }

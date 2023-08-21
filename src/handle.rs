@@ -245,9 +245,9 @@ impl TryFrom<u8> for Accessibility {
     }
 }
 
-impl Into<u8> for Accessibility {
-    fn into(self) -> u8 {
-        match self {
+impl From<Accessibility> for u8 {
+    fn from(val: Accessibility) -> Self {
+        match val {
             Accessibility::Strict => 0,
             Accessibility::Shallow => 1,
             Accessibility::Lazy => 2,
