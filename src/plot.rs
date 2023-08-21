@@ -1,16 +1,24 @@
+use std::fmt::Display;
+
 use eframe::epaint::{ClippedShape, Primitive, RectShape, TextShape};
 use egui::{
     plot::{PlotBounds, PlotPoint, PlotTransform},
     Color32, Mesh, Pos2, Rect, RichText, Shape, Stroke, TextStyle, Ui, WidgetText,
 };
 
+use crate::handle::{Handle, Task};
+
 #[derive(Clone)]
 pub(crate) struct Element {
-    text: String,
+    content: ElementContent,
     mesh: Mesh,
     mesh_bounds: Rect,
-    point: PlotPoint,
-    zoom: f32,
+}
+
+impl PartialEq for Element {
+    fn eq(&self, other: &Self) -> bool {
+        self.content == other.content
+    }
 }
 
 impl Element {
@@ -20,8 +28,8 @@ impl Element {
     /// Used to scale the text.
     const TEXT_PIXEL_SCALE: f32 = 40.0;
 
-    pub(crate) fn new(ui: &Ui, text: String, point: PlotPoint, zoom: f32) -> Self {
-        let rich_text = RichText::new(&text)
+    pub(crate) fn new(ui: &Ui, content: ElementContent) -> Self {
+        let rich_text = RichText::new(&content.to_string())
             .size(Self::TEXT_RENDER_SCALE)
             .monospace()
             .color(Color32::WHITE);
@@ -51,11 +59,11 @@ impl Element {
                 );
             });
             Self {
-                text,
+                content,
                 mesh_bounds: mesh.calc_bounds().expand(Self::RECT_EXTENSION),
                 mesh,
-                point,
-                zoom,
+                // point,
+                // zoom,
             }
         } else {
             panic!("Tessellated text should be a mesh")
@@ -79,11 +87,11 @@ impl Element {
         &self,
         transform: &PlotTransform,
         shapes: &mut Vec<Shape>,
+        (center, zoom): (PlotPoint, f32),
         highlight: bool,
     ) {
-        let transform = |pos: Pos2| -> Pos2 {
-            Self::graph_pos_to_screen_pos(pos, transform, self.zoom, self.point)
-        };
+        let transform =
+            |pos: Pos2| -> Pos2 { Self::graph_pos_to_screen_pos(pos, transform, zoom, center) };
 
         let mut mesh = self.mesh.clone();
         mesh.vertices.iter_mut().for_each(|v| {
@@ -105,15 +113,20 @@ impl Element {
         }
     }
 
-    pub(crate) fn add_highlight(&self, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+    pub(crate) fn add_highlight(
+        &self,
+        transform: &PlotTransform,
+        (center, zoom): (PlotPoint, f32),
+        shapes: &mut Vec<Shape>,
+    ) {
         let transform = transform;
         let scale_transform = |pos: Pos2| -> Pos2 {
             Pos2::new(
-                pos.x * transform.dpos_dvalue_x() as f32 * self.zoom,
-                -pos.y * transform.dpos_dvalue_y() as f32 * self.zoom,
+                pos.x * transform.dpos_dvalue_x() as f32 * zoom,
+                -pos.y * transform.dpos_dvalue_y() as f32 * zoom,
             )
         };
-        let translation = transform.position_from_point(&self.point).to_vec2();
+        let translation = transform.position_from_point(&center).to_vec2();
         let mut mesh_bounds = self.mesh_bounds.clone();
         mesh_bounds.min = scale_transform(mesh_bounds.min);
         mesh_bounds.max = scale_transform(mesh_bounds.max);
@@ -122,12 +135,12 @@ impl Element {
         shapes.push(RectShape::filled(mesh_bounds, 1.0, Color32::BLUE.gamma_multiply(0.2)).into())
     }
 
-    pub(crate) fn bounds(&self) -> PlotBounds {
+    pub(crate) fn bounds(&self, (center, zoom): (PlotPoint, f32)) -> PlotBounds {
         let mut rect = self.mesh_bounds;
 
         assert!(rect.center() == Pos2::ZERO);
-        rect.min = (rect.min.to_vec2() * self.zoom + self.point.to_vec2()).to_pos2();
-        rect.max = (rect.max.to_vec2() * self.zoom + self.point.to_vec2()).to_pos2();
+        rect.min = (rect.min.to_vec2() * zoom + center.to_vec2()).to_pos2();
+        rect.max = (rect.max.to_vec2() * zoom + center.to_vec2()).to_pos2();
 
         // Reverse the y axis because of rect vs plot coordinates.
         let bounds = PlotBounds::from_min_max(
@@ -135,5 +148,33 @@ impl Element {
             [rect.right().into(), rect.bottom().into()],
         );
         bounds
+    }
+
+    pub(crate) fn get_text(&self) -> String {
+        self.content.to_string()
+    }
+
+    pub(crate) fn get_handle(&self) -> &Handle {
+        match &self.content {
+            ElementContent::Handle(h) => &h,
+            ElementContent::Task(Task { handle, .. }) => &handle,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub(crate) enum ElementContent {
+    Handle(Handle),
+    Task(Task),
+}
+
+impl Display for ElementContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ElementContent::Handle(handle) => f.write_fmt(format_args!("{}", handle.to_hex())),
+            ElementContent::Task(task) => {
+                f.write_fmt(format_args!("{}: {}", task.handle.to_hex(), task.operation))
+            }
+        }
     }
 }

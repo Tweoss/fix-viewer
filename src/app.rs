@@ -4,7 +4,10 @@ use std::sync::{
 };
 
 use anyhow::Result;
-use egui::{plot::Plot, TextEdit};
+use egui::{
+    plot::{items::PlotItem, Plot},
+    TextEdit,
+};
 use reqwest::Client;
 
 use crate::{
@@ -41,8 +44,8 @@ struct State {
     error: String,
     first_render: bool,
     client: Arc<Client>,
-    response_tx: Sender<Result<http::Response>>,
-    response_rx: Receiver<Result<http::Response>>,
+    response_tx: Sender<(Handle, Result<http::Response>)>,
+    response_rx: Receiver<(Handle, Result<http::Response>)>,
     graph: Graph,
 }
 
@@ -138,7 +141,7 @@ impl eframe::App for App {
                     .changed()
                     || *first_render
                 {
-                    match Handle::from_hex(&target_input) {
+                    match Handle::from_hex(target_input) {
                         Ok(h) => {
                             error.clear();
                             storage.target = h.clone();
@@ -153,18 +156,22 @@ impl eframe::App for App {
                 http::get_parents(
                     client.clone(),
                     ctx.clone(),
-                    storage.target.clone(),
+                    &storage.target,
                     tx.clone(),
                     &storage.url,
                 );
             }
 
             if let Ok(http_result) = rx.try_recv() {
-                match http_result {
+                let handle = http_result.0;
+                match http_result.1 {
                     Ok(Response::Parents(tasks)) => {
-                        graph.set_parents(ui, tasks);
+                        if let Some(tasks) = tasks {
+                            log::info!("Received tasks {:?}", tasks);
+                            graph.set_parents(ui, handle, tasks);
+                        }
                     }
-                    Err(e) => *error = format!("{:#}", e),
+                    Err(e) => *error = format!("Failed http request: {}.", e.root_cause()),
                     _ => todo!(),
                 }
             }
@@ -189,7 +196,7 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            Plot::new("view_plot")
+            let hovered_elem = Plot::new("view_plot")
                 .data_aspect(1.0)
                 .auto_bounds_x()
                 .auto_bounds_y()
@@ -198,7 +205,26 @@ impl eframe::App for App {
                 .show_y(false)
                 .show(ui, |plot_ui| {
                     plot_ui.add(graph.clone());
+                    let (Some(coords), true) = (plot_ui.pointer_coordinate(), plot_ui.plot_clicked()) else {
+                        return None
+                    };
+                    let closest_elem = graph
+                        .find_closest(plot_ui.screen_from_plot(coords), plot_ui.transform())?;
+                    Some((coords, closest_elem))
+                }).inner;
+
+            if let Some((coords, closest_elem)) = hovered_elem {
+                graph.handle_nearby_click(ui, coords, closest_elem, |handle| {
+                    http::get_parents(
+                        client.clone(),
+                        ctx.clone(),
+                        handle,
+                        tx.clone(),
+                        &storage.url,
+                    );
                 });
+            }
+
         });
 
         *first_render = false;

@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use crate::handle::{Handle, Operation, Task};
 
 pub(crate) enum Response {
-    Parents(Vec<Task>),
+    Parents(Option<Vec<Task>>),
     Child(Option<Handle>),
     Dependees(Vec<Task>),
 }
@@ -15,9 +15,10 @@ pub(crate) enum Response {
 pub(crate) fn get<T, S, F>(
     client: Arc<Client>,
     ctx: egui::Context,
+    handle: Handle,
     url: String,
     map: F,
-    tx: Sender<Result<S>>,
+    tx: Sender<(Handle, Result<S>)>,
 ) where
     T: DeserializeOwned + Send,
     S: Send + 'static,
@@ -28,10 +29,25 @@ pub(crate) fn get<T, S, F>(
         match result {
             Ok(ok) => {
                 let json = ok.json::<T>().await;
-                let _ = tx.send(json.context("parsing json").and_then(|json| map(json)));
+                let _ = tx.send((handle, json.context("parsing json").and_then(map)));
             }
             Err(e) => {
-                let _ = tx.send(Err(anyhow::anyhow!("request failed: {}", e)));
+                let _ = tx.send((
+                    handle,
+                    Err(anyhow::anyhow!(format!(
+                        "request failed: {} error",
+                        match () {
+                            () if e.is_builder() => "building url",
+                            () if e.is_request() => "request",
+                            () if e.is_redirect() => "redirect",
+                            () if e.is_status() => "status code",
+                            () if e.is_body() => "body",
+                            () if e.is_decode() => "decode",
+                            () if e.is_timeout() => "timeout",
+                            () => "unknown",
+                        }
+                    ))),
+                ));
             }
         }
         ctx.request_repaint();
@@ -51,22 +67,26 @@ struct JsonTask {
 pub(crate) fn get_parents(
     client: Arc<Client>,
     ctx: egui::Context,
-    handle: Handle,
-    tx: Sender<Result<Response>>,
+    handle: &Handle,
+    tx: Sender<(Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
     struct JsonResponse {
-        parents: Vec<JsonTask>,
+        parents: Option<Vec<JsonTask>>,
     }
 
     get(
         client,
         ctx,
+        handle.clone(),
         format!("http://{url_base}/parents?handle={}", handle.to_hex()),
         |json: JsonResponse| {
-            Ok(Response::Parents(
-                json.parents
+            let Some(json_parents )= json.parents else {
+                return Ok(Response::Parents(None));
+            };
+            Ok(Response::Parents(Some(
+                json_parents
                     .iter()
                     .map(|json_task| {
                         Ok::<Task, anyhow::Error>(Task {
@@ -81,7 +101,7 @@ pub(crate) fn get_parents(
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
-            ))
+            )))
         },
         tx,
     );
@@ -91,7 +111,7 @@ pub(crate) fn get_dependees(
     client: Arc<Client>,
     ctx: egui::Context,
     handle: Handle,
-    tx: Sender<Result<Response>>,
+    tx: Sender<(Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
@@ -102,9 +122,10 @@ pub(crate) fn get_dependees(
     get(
         client,
         ctx,
+        handle.clone(),
         format!("http://{url_base}/dependees?handle={}", handle.to_hex()),
         |json: JsonResponse| {
-            Ok(Response::Parents(
+            Ok(Response::Parents(Some(
                 json.dependees
                     .iter()
                     .map(|json_task| {
@@ -120,7 +141,7 @@ pub(crate) fn get_dependees(
                         })
                     })
                     .collect::<Result<Vec<_>>>()?,
-            ))
+            )))
         },
         tx,
     );
@@ -131,7 +152,7 @@ pub(crate) fn get_child(
     ctx: egui::Context,
     handle: Handle,
     operation: Operation,
-    tx: Sender<Result<Response>>,
+    tx: Sender<(Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
@@ -142,6 +163,7 @@ pub(crate) fn get_child(
     get(
         client,
         ctx,
+        handle.clone(),
         format!(
             "http://{url_base}/child?handle={}+op={}",
             handle.to_hex(),
