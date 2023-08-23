@@ -12,13 +12,14 @@ use egui::{
 };
 
 use crate::handle::Task;
-use crate::plot::ElementContent;
 use crate::{handle::Handle, plot::Element};
+
+mod ancestors;
 
 #[derive(Clone)]
 pub(crate) struct Graph {
     name: String,
-    main: Option<ancestors::MainAncestor>,
+    main: Option<ancestors::AncestorGraph>,
 }
 
 impl Graph {
@@ -49,23 +50,15 @@ impl Graph {
 
     /// Resets the main ancestor and deletes all of its ancestors.
     pub fn set_main_handle(&mut self, ui: &Ui, handle: Handle) {
-        self.main = Some(ancestors::MainAncestor::new(Element::new(
-            ui,
-            ElementContent::Handle(handle),
-        )));
+        self.main = Some(ancestors::AncestorGraph::new(Element::new(ui, handle)));
     }
 
     /// Set the parents of a specifc handle (which must be either a MainAncestor)
     /// or an Ancestor of the MainAncestor
     pub fn set_parents(&mut self, ui: &Ui, handle: Handle, parents: Vec<Task>) {
-        // Wrap the new Tasks in Elements.
-        let elements: Vec<_> = parents
-            .iter()
-            .map(|task| Element::new(ui, ElementContent::Task(task.clone())))
-            .collect();
         // Merge into the ancestry tree.
         if let Some(main) = &mut self.main {
-            main.merge_new_parents(handle, &elements);
+            main.merge_new_parents(ui, handle, &parents);
         }
     }
 
@@ -195,154 +188,5 @@ impl PlotItem for Graph {
                 .merge(&el.bounds(self.get_draw_parameters(self.get_graph_index(index).unwrap())));
         }
         bounds
-    }
-}
-
-mod ancestors {
-    use std::fmt::Display;
-
-    use egui::plot::PlotPoint;
-
-    use crate::{handle::Handle, plot::Element};
-
-    /// An element and all of its ancestors
-    #[derive(Clone)]
-    pub(super) struct MainAncestor {
-        inner: [Ancestor; 1],
-    }
-
-    /// An element and all of its ancestors
-    #[derive(Clone)]
-    pub struct Ancestor {
-        content: Element,
-        parents: Vec<Ancestor>,
-    }
-
-    impl Display for Ancestor {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_fmt(format_args!(
-                "{{content: {}, parents: [",
-                self.content.get_text()
-            ))?;
-            for parent in &self.parents {
-                f.write_fmt(format_args!("{}, ", parent))?;
-            }
-            f.write_str("]}")
-        }
-    }
-
-    impl MainAncestor {
-        pub fn new(element: Element) -> Self {
-            Self {
-                inner: [Ancestor {
-                    content: element,
-                    parents: vec![],
-                }],
-            }
-        }
-
-        pub fn iter(&self) -> impl Iterator<Item = &Element> {
-            let mut list = vec![];
-            // Prefix, depth-first search
-            fn push_elements<'a>(current_list: &'a [Ancestor], list: &mut Vec<&'a Element>) {
-                for el in current_list {
-                    list.push(&el.content);
-                    push_elements(&el.parents, list)
-                }
-            }
-            push_elements(&self.inner, &mut list);
-            list.into_iter()
-        }
-
-        fn find(&mut self, handle: Handle) -> Option<&mut Ancestor> {
-            fn find_rec<'a>(
-                current_list: &'a mut [Ancestor],
-                handle: &Handle,
-            ) -> Option<&'a mut Ancestor> {
-                current_list.iter_mut().find_map(|el| {
-                    if el.content.get_handle() == handle {
-                        return Some(el);
-                    }
-                    find_rec(&mut el.parents, handle)
-                })
-            }
-            find_rec(&mut self.inner, &handle)
-        }
-
-        pub fn get_draw_parameters(&self, mut index: usize) -> (PlotPoint, f32) {
-            // Convert this singular index into indices into each of the generations.
-            fn get_location_rec(
-                current_list: &[Ancestor],
-                index: &mut usize,
-            ) -> Option<Vec<usize>> {
-                current_list.iter().enumerate().find_map(|(i, el)| {
-                    if *index == 0 {
-                        return Some(vec![i]);
-                    }
-                    // Prefix
-                    *index -= 1;
-                    // Depth first
-                    if let Some(mut list) = get_location_rec(&el.parents, index) {
-                        list.push(i);
-                        return Some(list);
-                    }
-                    None
-                })
-            }
-
-            let lineage = {
-                let mut vec = get_location_rec(&self.inner, &mut index)
-                    .expect("Need index that is contained in ancestors to get_location");
-                vec.reverse();
-                vec
-            };
-
-            let mut pos = [0.0, 0.0];
-            let mut scale = 1.0;
-            let mut current_generation = self.inner.as_slice();
-            for lineage_index in &lineage {
-                // Scale y for this generation
-                scale /= current_generation.len() as f32;
-                // Increase y
-                pos[1] += scale;
-                // Offset x
-                // |   0   |   1   |   2   |
-                // |  0  |  1  |  2  |  3  |
-                let step_size = scale;
-                let x_step_offset_to_left_edge =
-                    *lineage_index as f32 - (current_generation.len() as f32) * 0.5;
-                let x_step_offset_to_center = x_step_offset_to_left_edge + 0.5;
-                pos[0] += step_size * x_step_offset_to_center;
-
-                current_generation = current_generation[*lineage_index].parents.as_slice();
-            }
-
-            (PlotPoint::new(pos[0], pos[1]), scale)
-        }
-
-        pub fn merge_new_parents(&mut self, handle: Handle, incoming_parents: &[Element]) {
-            if let Some(ancestor) = self.find(handle) {
-                ancestor.merge_parents(incoming_parents);
-            }
-        }
-    }
-
-    impl Ancestor {
-        fn merge_parents(&mut self, incoming_parents: &[Element]) {
-            for element in incoming_parents {
-                // Linear scan, performance irrelevant for small lists of parents.
-                if self
-                    .parents
-                    .iter()
-                    .map(|p| &p.content)
-                    .all(|p_el| p_el != element)
-                {
-                    self.parents.push(Ancestor {
-                        content: element.clone(),
-                        parents: vec![],
-                    });
-                }
-            }
-        }
     }
 }

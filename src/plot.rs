@@ -1,16 +1,14 @@
-use std::fmt::Display;
-
 use eframe::epaint::{ClippedShape, Primitive, RectShape, TextShape};
 use egui::{
     plot::{PlotBounds, PlotPoint, PlotTransform},
     Color32, Mesh, Pos2, Rect, RichText, Shape, Stroke, TextStyle, Ui, WidgetText,
 };
 
-use crate::handle::{Handle, Task};
+use crate::handle::Handle;
 
 #[derive(Clone)]
 pub(crate) struct Element {
-    content: ElementContent,
+    content: Handle,
     mesh: Mesh,
     mesh_bounds: Rect,
 }
@@ -28,8 +26,8 @@ impl Element {
     /// Used to scale the text.
     const TEXT_PIXEL_SCALE: f32 = 40.0;
 
-    pub(crate) fn new(ui: &Ui, content: ElementContent) -> Self {
-        let rich_text = RichText::new(content.to_string())
+    pub(crate) fn new(ui: &Ui, content: Handle) -> Self {
+        let rich_text = RichText::new(content.to_hex())
             .size(Self::TEXT_RENDER_SCALE)
             .monospace()
             .color(Color32::WHITE);
@@ -148,30 +146,10 @@ impl Element {
     }
 
     pub(crate) fn get_text(&self) -> String {
-        self.content.to_string()
+        self.content.to_hex()
     }
 
     pub(crate) fn get_handle(&self) -> &Handle {
-        match &self.content {
-            ElementContent::Handle(h) => h,
-            ElementContent::Task(Task { handle, .. }) => handle,
-        }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub(crate) enum ElementContent {
-    Handle(Handle),
-    Task(Task),
-}
-
-impl Display for ElementContent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ElementContent::Handle(handle) => f.write_fmt(format_args!("{}", handle.to_hex())),
-            ElementContent::Task(task) => {
-                f.write_fmt(format_args!("{}: {}", task.handle.to_hex(), task.operation))
-            }
-        }
+        &self.content
     }
 }

@@ -24,14 +24,14 @@ pub(crate) enum Operation {
     Fill,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Handle {
     pub(crate) size: u64,
     pub(crate) accessibility: Accessibility,
     pub(crate) content: Content,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Content {
     Other {
         object_type: Object,
@@ -40,20 +40,20 @@ pub(crate) enum Content {
     Literal([u8; LITERAL_CONTENT_LENGTH]),
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Nonliteral {
     Canonical([u8; CANONICAL_HASH_LENGTH]),
     Local(u64),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Accessibility {
     Strict,
     Shallow,
     Lazy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 pub(crate) enum Object {
     Blob,
     Tree,
