@@ -1,9 +1,15 @@
 use std::collections::HashMap;
 
-use eframe::epaint::CubicBezierShape;
+use eframe::epaint::{util::FloatOrd, CubicBezierShape};
 use egui::{
-    plot::{PlotPoint, PlotTransform},
-    Color32, Shape, Stroke,
+    plot::{
+        items::{
+            values::{ClosestElem, PlotGeometry},
+            PlotConfig, PlotItem,
+        },
+        LabelFormatter, PlotBounds, PlotPoint, PlotTransform,
+    },
+    Color32, Pos2, Shape, Stroke, Ui,
 };
 
 use crate::{
@@ -46,20 +52,68 @@ enum Arrow {
     Right,
 }
 
-impl std::fmt::Debug for Ancestor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{{content: {}, parents: [",
-            self.content.get_text()
-        ))?;
-        for parent in &self.parents {
-            f.write_fmt(format_args!("{:?}, ", parent))?;
+impl PlotItem for AncestorGraph {
+    fn shapes(&self, _ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+        for (index, el) in self.iter().enumerate() {
+            el.add_shapes(transform, shapes, self.get_draw_parameters(index), false);
         }
-        f.write_str("], children: [")?;
-        for child in &self.children {
-            f.write_fmt(format_args!("{:?}, ", child))?;
+        self.add_arrows(transform, shapes);
+    }
+
+    fn initialize(&mut self, _x_range: std::ops::RangeInclusive<f64>) {}
+
+    fn name(&self) -> &str {
+        "Ancestor Tree"
+    }
+
+    fn color(&self) -> Color32 {
+        Color32::TRANSPARENT
+    }
+
+    fn highlight(&mut self) {}
+
+    fn highlighted(&self) -> bool {
+        false
+    }
+
+    fn geometry(&self) -> PlotGeometry<'_> {
+        PlotGeometry::Rects
+    }
+
+    /// Search for the closest element in the graph based on squared distance to bounds.
+    fn find_closest(&self, point: Pos2, transform: &PlotTransform) -> Option<ClosestElem> {
+        self.iter()
+            .enumerate()
+            .map(|(index, el)| {
+                let bounds = el.bounds(self.get_draw_parameters(index));
+                let rect = transform.rect_from_values(&bounds.min().into(), &bounds.max().into());
+                ClosestElem {
+                    index,
+                    dist_sq: rect.distance_sq_to_pos(point),
+                }
+            })
+            .min_by_key(|e| e.dist_sq.ord())
+    }
+
+    fn on_hover(
+        &self,
+        elem: ClosestElem,
+        shapes: &mut Vec<Shape>,
+        _: &mut Vec<egui::plot::Cursor>,
+        plot: &PlotConfig<'_>,
+        _: &LabelFormatter,
+    ) {
+        let entry = self.iter().nth(elem.index);
+        let Some(entry) = entry else { return };
+        entry.add_highlight(plot.transform, self.get_draw_parameters(elem.index), shapes);
+    }
+
+    fn bounds(&self) -> PlotBounds {
+        let mut bounds = PlotBounds::NOTHING;
+        for (index, el) in self.iter().enumerate() {
+            bounds.merge(&el.bounds(self.get_draw_parameters(index)));
         }
-        f.write_str("]}")
+        bounds
     }
 }
 
@@ -76,6 +130,32 @@ impl AncestorGraph {
             ordering,
             lineages,
         }
+    }
+
+    /// Handle a click that is near to a ClosestElem. May send an http request
+    /// that is specified by the `request` parameter.
+    pub fn handle_nearby_click(
+        &self,
+        ui: &Ui,
+        coords: PlotPoint,
+        closest_elem: ClosestElem,
+        request: impl FnOnce(&Handle),
+    ) {
+        let Some(elem) = self.iter().nth(closest_elem.index) else {
+            log::error!("Handling a click near to an element whose index no longer exists");
+            return;
+        };
+
+        let params = self.get_draw_parameters(closest_elem.index);
+        let [min_x, min_y] = elem.bounds(params).min();
+        let [max_x, max_y] = elem.bounds(params).max();
+        let p = coords;
+        let elem_contains_p = min_x <= p.x && p.x <= max_x && min_y <= p.y && p.y <= max_y;
+        if elem_contains_p {
+            ui.output_mut(|o| o.copied_text = elem.get_text());
+            log::info!("Requesting parents");
+            request(elem.get_handle());
+        };
     }
 
     fn get_from_lineage<'a>(root_slice: &'a [Ancestor], lineage: &Lineage) -> &'a Ancestor {
@@ -107,7 +187,7 @@ impl AncestorGraph {
         &mut generation[*last_index]
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &Element> {
+    fn iter(&self) -> impl Iterator<Item = &Element> {
         self.ordering.iter().map(|handle| {
             let lineage = &self
                 .lineages
@@ -118,16 +198,12 @@ impl AncestorGraph {
         })
     }
 
-    pub fn len(&self) -> usize {
-        self.ordering.len()
-    }
-
     fn find(&mut self, handle: &Handle) -> Option<&mut Ancestor> {
         let lineage = self.lineages.get(handle)?.clone();
         Some(Self::get_mut_from_lineage(&mut self.inner, &lineage.1))
     }
 
-    pub fn get_draw_parameters(&self, index: usize) -> (PlotPoint, f32) {
+    fn get_draw_parameters(&self, index: usize) -> (PlotPoint, f32) {
         const Y_SCALE: f32 = 0.5;
 
         let lineage = &self.lineages.get(&self.ordering[index]).unwrap().1 .0;
@@ -193,7 +269,7 @@ impl AncestorGraph {
         }
     }
 
-    pub(crate) fn add_arrows(&self, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+    fn add_arrows(&self, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
         // For every handle in this graph,
         for handle in self.ordering.iter() {
             // Obtain its lineage
@@ -278,6 +354,23 @@ impl AncestorGraph {
         );
         shapes.push(arrow_body.into());
         shapes.push(arrow_head);
+    }
+}
+
+impl std::fmt::Debug for Ancestor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{{content: {}, parents: [",
+            self.content.get_text()
+        ))?;
+        for parent in &self.parents {
+            f.write_fmt(format_args!("{:?}, ", parent))?;
+        }
+        f.write_str("], children: [")?;
+        for child in &self.children {
+            f.write_fmt(format_args!("{:?}, ", child))?;
+        }
+        f.write_str("]}")
     }
 }
 

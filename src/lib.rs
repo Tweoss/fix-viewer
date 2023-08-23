@@ -1,5 +1,5 @@
 mod app;
-mod graph;
+mod graphs;
 mod handle;
 mod http;
 mod plot;

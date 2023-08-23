@@ -4,14 +4,11 @@ use std::sync::{
 };
 
 use anyhow::Result;
-use egui::{
-    plot::{items::PlotItem, Plot},
-    Color32, TextEdit, Visuals,
-};
+use egui::{TextEdit, Visuals};
 use reqwest::Client;
 
 use crate::{
-    graph::Graph,
+    graphs::GraphsContainer,
     handle::{Handle, Operation},
     http::{self, Response},
 };
@@ -46,7 +43,7 @@ struct State {
     client: Arc<Client>,
     response_tx: Sender<(Handle, Result<http::Response>)>,
     response_rx: Receiver<(Handle, Result<http::Response>)>,
-    graph: Graph,
+    graph: GraphsContainer,
 }
 
 impl Default for State {
@@ -60,7 +57,7 @@ impl Default for State {
             client: Arc::new(Client::new()),
             response_tx: tx,
             response_rx: rx,
-            graph: Graph::new("dependency_graph"),
+            graph: GraphsContainer::new(),
         }
     }
 }
@@ -118,8 +115,8 @@ impl eframe::App for App {
             });
         });
 
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
+        egui::SidePanel::left("controls").show(ctx, |ui| {
+            ui.heading("Controls");
 
             ui.separator();
 
@@ -201,47 +198,7 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let hovered_elem = Plot::new("view_plot")
-                .data_aspect(1.0)
-                .auto_bounds_x()
-                .auto_bounds_y()
-                .show_axes([true; 2])
-                .show_x(false)
-                .show_y(false)
-                .show(ui, |plot_ui| {
-                    plot_ui.add(graph.clone());
-                    let (Some(coords), true) = (plot_ui.pointer_coordinate(), plot_ui.plot_clicked()) else {
-                        return None
-                    };
-                    let closest_elem = graph
-                        .find_closest(plot_ui.screen_from_plot(coords), plot_ui.transform())?;
-                    Some((coords, closest_elem))
-                }).inner;
-
-            if let Some((coords, closest_elem)) = hovered_elem {
-                graph.handle_nearby_click(ui, coords, closest_elem, |handle| {
-                    http::get_parents(
-                        client.clone(),
-                        ctx.clone(),
-                        handle,
-                        tx.clone(),
-                        &storage.url,
-                    );
-                });
-            }
-
-        });
-
+        graph.view(ctx, client.clone(), &storage.url, tx.clone());
         *first_render = false;
-
-        if false {
-            egui::Window::new("Window").show(ctx, |ui| {
-                ui.label("Windows can be moved by dragging them.");
-                ui.label("They are automatically sized based on contents.");
-                ui.label("You can turn on resizing and scrolling if you like.");
-                ui.label("You would normally choose either panels OR windows.");
-            });
-        }
     }
 }
