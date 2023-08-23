@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use egui::plot::PlotPoint;
+use eframe::epaint::CubicBezierShape;
+use egui::{
+    plot::{PlotPoint, PlotTransform},
+    Color32, Shape, Stroke,
+};
 
 use crate::{
     handle::{Handle, Operation, Task},
@@ -13,13 +17,13 @@ use crate::{
 pub(super) struct AncestorGraph {
     inner: [Ancestor; 1],
     /// Used to reference to id's
-    lineages: HashMap<Handle, (AncestorIndex, Lineage)>,
+    lineages: HashMap<Handle, (OrderingIndex, Lineage)>,
     /// Defined ordering of Handles. Used to reference from id's
     ordering: Vec<Handle>,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub struct AncestorIndex(usize);
+#[derive(Clone, Copy, PartialEq, Debug, Eq)]
+pub struct OrderingIndex(usize);
 
 #[derive(Clone, Debug)]
 /// Index positions into the tree of Ancestors.
@@ -33,7 +37,13 @@ pub struct Ancestor {
     /// Parents that render above this Ancestor's contained Element
     parents: Vec<Ancestor>,
     /// Children Handles that are pointed to.
-    children: Vec<(AncestorIndex, Operation)>,
+    children: Vec<(OrderingIndex, Operation)>,
+}
+
+/// The direction an outgoing arrow should go.
+enum Arrow {
+    Down,
+    Right,
 }
 
 impl std::fmt::Debug for Ancestor {
@@ -59,10 +69,10 @@ impl AncestorGraph {
         let mut lineages = HashMap::new();
         lineages.insert(
             element.get_handle().clone(),
-            (AncestorIndex(0), Lineage(vec![0])),
+            (OrderingIndex(0), Lineage(vec![0])),
         );
         Self {
-            inner: [Ancestor::new(element)],
+            inner: [Ancestor::new(element, vec![])],
             ordering,
             lineages,
         }
@@ -108,6 +118,10 @@ impl AncestorGraph {
         })
     }
 
+    pub fn len(&self) -> usize {
+        self.ordering.len()
+    }
+
     fn find(&mut self, handle: &Handle) -> Option<&mut Ancestor> {
         let lineage = self.lineages.get(handle)?.clone();
         Some(Self::get_mut_from_lineage(&mut self.inner, &lineage.1))
@@ -118,7 +132,7 @@ impl AncestorGraph {
 
         let lineage = &self.lineages.get(&self.ordering[index]).unwrap().1 .0;
 
-        // Set the position to be (0, -1) so that the first vertical offset puts
+        // Set the position to be (0, -pos) so that the first vertical offset puts
         // the main object at (0, 0).
         let mut scale = 1.0;
         let mut pos = [0.0, -scale * Y_SCALE];
@@ -161,7 +175,7 @@ impl AncestorGraph {
                 let target_list =
                     &mut Self::get_mut_from_lineage(&mut self.inner, &child_lineage).parents;
                 let lineage_index = target_list.len();
-                let ancestor_index = AncestorIndex(self.ordering.len());
+                let ancestor_index = OrderingIndex(self.ordering.len());
                 self.lineages.insert(
                     parent.handle.clone(),
                     (ancestor_index, {
@@ -171,22 +185,112 @@ impl AncestorGraph {
                     }),
                 );
                 self.ordering.push(parent.handle.clone());
-                target_list.push(Ancestor::new(Element::new(ui, parent.handle.clone())));
+                target_list.push(Ancestor::new(
+                    Element::new(ui, parent.handle.clone()),
+                    vec![(child_index, parent.operation)],
+                ));
             }
         }
+    }
+
+    pub(crate) fn add_arrows(&self, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+        // For every handle in this graph,
+        for handle in self.ordering.iter() {
+            // Obtain its lineage
+            let (index, lineage) = self
+                .lineages
+                .get(handle)
+                .expect("handle in ordering is not in lineages");
+            let container = Self::get_from_lineage(&self.inner, lineage);
+            let o_draw_params = self.get_draw_parameters(index.0);
+            // and determine its bounding box.
+            let o_bbox = container.content.bounds(o_draw_params);
+            // Then, for every child of this handle,
+            for child in &container.children {
+                // set the origin_point to be the right middle or center bottom of the handle's bounding box
+                // if the origin maps to itself or to another index, respectively
+                let (o_point, direction) = if *index == child.0 {
+                    ([o_bbox.max()[0], o_bbox.center().y].into(), Arrow::Right)
+                } else {
+                    ([o_bbox.center().x, o_bbox.min()[1]].into(), Arrow::Down)
+                };
+                // and get the target's bounding box.
+                let t_draw_params = self.get_draw_parameters(child.0 .0);
+                let t_bbox = Self::get_from_lineage(
+                    &self.inner,
+                    &self.lineages[&self.ordering[child.0 .0]].1,
+                )
+                .content
+                .bounds(t_draw_params);
+                // Set the target_point to be the center top of the child box.
+                let t_point = PlotPoint::new(t_bbox.center().x, t_bbox.max()[1]);
+                // Draw an arrow from the center bottom of the origin to the center top of the target.
+                Self::add_arrow(
+                    transform,
+                    shapes,
+                    (o_point, o_draw_params.1 / 5.0, direction),
+                    (t_point, t_draw_params.1 / 5.0),
+                    child.1.get_color(),
+                )
+            }
+        }
+    }
+
+    /// Draws an arrow from the origin to the target using a cubic bezier curve
+    /// that weighs the control points according to the scales at each end.
+    fn add_arrow(
+        transform: &PlotTransform,
+        shapes: &mut Vec<Shape>,
+        origin: (PlotPoint, f32, Arrow),
+        target: (PlotPoint, f32),
+        color: Color32,
+    ) {
+        let arrow_scale = f32::min(origin.1, target.1);
+        let tip_scale = arrow_scale as f64 / 40.0;
+        let stroke = Stroke::new(
+            arrow_scale * transform.dpos_dvalue_x() as f32 / 100.0,
+            color,
+        );
+        let origin_control = match origin.2 {
+            Arrow::Down => PlotPoint::new(origin.0.x, origin.0.y - origin.1 as f64),
+            Arrow::Right => PlotPoint::new(origin.0.x + origin.1 as f64, origin.0.y),
+        };
+        let target_control = PlotPoint::new(target.0.x, target.0.y + target.1 as f64);
+        let head_start = PlotPoint::new(target.0.x - tip_scale, target.0.y + tip_scale);
+        let head_end = PlotPoint::new(target.0.x + tip_scale, target.0.y + tip_scale);
+        let origin = transform.position_from_point(&origin.0);
+        let origin_control = transform.position_from_point(&origin_control);
+        let target_control = transform.position_from_point(&target_control);
+        let target = transform.position_from_point(&target.0);
+        let arrow_body = CubicBezierShape::from_points_stroke(
+            [origin, origin_control, target_control, target],
+            false,
+            Color32::TRANSPARENT,
+            stroke,
+        );
+        let arrow_head = Shape::line(
+            vec![
+                transform.position_from_point(&head_start),
+                target,
+                transform.position_from_point(&head_end),
+            ],
+            stroke,
+        );
+        shapes.push(arrow_body.into());
+        shapes.push(arrow_head);
     }
 }
 
 impl Ancestor {
-    fn new(content: Element) -> Self {
+    fn new(content: Element, children: Vec<(OrderingIndex, Operation)>) -> Self {
         Ancestor {
             content,
             parents: vec![],
-            children: vec![],
+            children,
         }
     }
 
-    fn add_child(&mut self, incoming_child: &AncestorIndex, operation: Operation) {
+    fn add_child(&mut self, incoming_child: &OrderingIndex, operation: Operation) {
         // Linear scan, performance irrelevant for small lists of children.
         if self
             .children

@@ -64,9 +64,10 @@ pub(crate) enum Object {
 impl Handle {
     /// Parses a handle in format [unsigned 64 bit number as hex]-[u64 as hex]-[u64 as hex]-[u64 as hex].
     /// For example, d9-0-4-0 or 10-0-0-2400000000000000.
+    /// Also takes d9|0|4|0 for compatibility with fixpoint handle formatting.
     pub(crate) fn from_hex(input: &str) -> Result<Self> {
         let handle_content = input
-            .split('-')
+            .split(|c| c == '-' || c == '|')
             .map(|i| u64::from_str_radix(i, 16))
             .collect::<Result<Vec<_>, _>>()
             .context("Failed to parse handle from hex")?;
@@ -219,6 +220,16 @@ impl Display for Operation {
             Operation::Eval => "Eval",
             Operation::Fill => "Fill",
         })
+    }
+}
+
+impl Operation {
+    pub fn get_color(&self) -> egui::Color32 {
+        match self {
+            Operation::Apply => egui::Color32::GREEN,
+            Operation::Eval => egui::Color32::BLUE,
+            Operation::Fill => egui::Color32::RED,
+        }
     }
 }
 

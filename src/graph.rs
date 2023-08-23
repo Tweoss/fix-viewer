@@ -65,7 +65,7 @@ impl Graph {
     /// Categorises an index as a `GraphIndex`.
     pub fn get_graph_index(&self, index: usize) -> Option<GraphIndex> {
         if let Some(main) = &self.main {
-            let ancestor_length = main.iter().count();
+            let ancestor_length = main.len();
             if (0..ancestor_length).contains(&index) {
                 return Some(GraphIndex::Ancestor(index));
             }
@@ -125,6 +125,9 @@ impl PlotItem for Graph {
                 self.get_draw_parameters(self.get_graph_index(index).unwrap()),
                 false,
             );
+        }
+        if let Some(main) = &self.main {
+            main.add_arrows(transform, shapes);
         }
     }
 

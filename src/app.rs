@@ -6,13 +6,13 @@ use std::sync::{
 use anyhow::Result;
 use egui::{
     plot::{items::PlotItem, Plot},
-    TextEdit,
+    Color32, TextEdit, Visuals,
 };
 use reqwest::Client;
 
 use crate::{
     graph::Graph,
-    handle::Handle,
+    handle::{Handle, Operation},
     http::{self, Response},
 };
 
@@ -76,6 +76,8 @@ impl App {
                 storage: eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default(),
             };
         }
+
+        cc.egui_ctx.set_visuals(Visuals::dark());
 
         App {
             state: State::default(),
@@ -176,6 +178,10 @@ impl eframe::App for App {
                 }
             }
 
+            ui.separator();
+            ui.colored_label(Operation::Apply.get_color(), Operation::Apply.to_string());
+            ui.colored_label(Operation::Eval.get_color(), Operation::Eval.to_string());
+            ui.colored_label(Operation::Fill.get_color(), Operation::Fill.to_string());
             ui.separator();
             ui.label(response.as_str());
             ui.label(error.as_str());
