@@ -14,12 +14,14 @@ mod ancestors;
 
 #[derive(Clone)]
 pub(crate) struct GraphsContainer {
-    ancestry: Option<ancestors::AncestorGraph>,
+    ancestry: ancestors::AncestorGraph,
 }
 
 impl GraphsContainer {
-    pub fn new() -> Self {
-        Self { ancestry: None }
+    pub fn new(ui: &Ui, handle: Handle) -> Self {
+        Self {
+            ancestry: ancestors::AncestorGraph::new(Element::new(ui, handle)),
+        }
     }
 
     pub fn view(
@@ -38,7 +40,7 @@ impl GraphsContainer {
                 .show_x(false)
                 .show_y(false)
                 .show(ui, |plot_ui| {
-                    let graph = self.ancestry.as_ref()?;
+                    let graph = &self.ancestry;
                     plot_ui.add(graph.clone());
                     let (Some(coords), true) = (plot_ui.pointer_coordinate(), plot_ui.plot_clicked()) else {
                         return None
@@ -49,8 +51,7 @@ impl GraphsContainer {
                 }).inner;
 
             if let Some((coords, closest_elem)) = hovered_elem {
-                if let Some(graph) = &self.ancestry {
-                    graph.handle_nearby_click(ui, coords, closest_elem, |handle| {
+                    self.ancestry.handle_nearby_click(ui, coords, closest_elem, |handle| {
                         http::get_parents(
                             client.clone(),
                             ctx.clone(),
@@ -59,21 +60,13 @@ impl GraphsContainer {
                             url,
                         );
                     });
-                }
             }
         });
-    }
-
-    /// Resets the main ancestor and deletes all of its ancestors.
-    pub fn set_main_handle(&mut self, ui: &Ui, handle: Handle) {
-        self.ancestry = Some(ancestors::AncestorGraph::new(Element::new(ui, handle)));
     }
 
     /// Set the parents of a specific handle
     pub fn set_parents(&mut self, ui: &Ui, handle: Handle, parents: Vec<Task>) {
         // Merge into the ancestry tree.
-        if let Some(main) = &mut self.ancestry {
-            main.merge_new_parents(ui, handle, &parents);
-        }
+        self.ancestry.merge_new_parents(ui, handle, &parents);
     }
 }

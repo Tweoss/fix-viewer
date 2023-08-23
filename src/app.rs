@@ -43,7 +43,7 @@ struct State {
     client: Arc<Client>,
     response_tx: Sender<(Handle, Result<http::Response>)>,
     response_rx: Receiver<(Handle, Result<http::Response>)>,
-    graph: GraphsContainer,
+    graph: Option<GraphsContainer>,
 }
 
 impl Default for State {
@@ -57,7 +57,7 @@ impl Default for State {
             client: Arc::new(Client::new()),
             response_tx: tx,
             response_rx: rx,
-            graph: GraphsContainer::new(),
+            graph: None,
         }
     }
 }
@@ -132,6 +132,9 @@ impl eframe::App for App {
                 *target_input = storage.target.to_hex();
             }
             ui.horizontal(|ui| {
+                if *first_render {
+                    *graph = Some(GraphsContainer::new(ui, storage.target.clone()));
+                }
                 ui.label("Target: ");
                 if TextEdit::singleline(target_input)
                     .desired_width(f32::INFINITY)
@@ -144,7 +147,7 @@ impl eframe::App for App {
                         Ok(h) => {
                             error.clear();
                             storage.target = h.clone();
-                            graph.set_main_handle(ui, h);
+                            *graph = Some(GraphsContainer::new(ui, h));
                         }
                         Err(e) => *error = format!("{:#}", e),
                     }
@@ -167,7 +170,7 @@ impl eframe::App for App {
                     Ok(Response::Parents(tasks)) => {
                         if let Some(tasks) = tasks {
                             log::info!("Received tasks {:?}", tasks);
-                            graph.set_parents(ui, handle, tasks);
+                            graph.as_mut().unwrap().set_parents(ui, handle, tasks);
                         }
                     }
                     Err(e) => *error = format!("Failed http request: {}.", e.root_cause()),
@@ -198,7 +201,10 @@ impl eframe::App for App {
             });
         });
 
-        graph.view(ctx, client.clone(), &storage.url, tx.clone());
+        graph
+            .as_mut()
+            .unwrap()
+            .view(ctx, client.clone(), &storage.url, tx.clone());
         *first_render = false;
     }
 }
