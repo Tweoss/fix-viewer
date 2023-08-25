@@ -9,16 +9,17 @@ use crate::handle::{Handle, Operation, Task};
 pub(crate) enum Response {
     Parents(Option<Vec<Task>>),
     Child(Option<Handle>),
-    Dependees(Vec<Task>),
+    Dependees(Option<Vec<Task>>),
 }
 
 pub(crate) fn get<T, S, F>(
     client: Arc<Client>,
     ctx: egui::Context,
+    index: usize,
     handle: Handle,
     url: String,
     map: F,
-    tx: Sender<(Handle, Result<S>)>,
+    tx: Sender<(usize, Handle, Result<S>)>,
 ) where
     T: DeserializeOwned + Send,
     S: Send + 'static,
@@ -29,10 +30,11 @@ pub(crate) fn get<T, S, F>(
         match result {
             Ok(ok) => {
                 let json = ok.json::<T>().await;
-                let _ = tx.send((handle, json.context("parsing json").and_then(map)));
+                let _ = tx.send((index, handle, json.context("parsing json").and_then(map)));
             }
             Err(e) => {
                 let _ = tx.send((
+                    index,
                     handle,
                     Err(anyhow::anyhow!(format!(
                         "request failed: {} error",
@@ -68,8 +70,9 @@ struct JsonTask {
 pub(crate) fn get_parents(
     client: Arc<Client>,
     ctx: egui::Context,
+    index: usize,
     handle: &Handle,
-    tx: Sender<(Handle, Result<Response>)>,
+    tx: Sender<(usize, Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
@@ -80,6 +83,7 @@ pub(crate) fn get_parents(
     get(
         client,
         ctx,
+        index,
         handle.clone(),
         format!("http://{url_base}/parents?handle={}", handle.to_hex()),
         |json: JsonResponse| {
@@ -111,23 +115,33 @@ pub(crate) fn get_parents(
 pub(crate) fn get_dependees(
     client: Arc<Client>,
     ctx: egui::Context,
+    index: usize,
     handle: Handle,
-    tx: Sender<(Handle, Result<Response>)>,
+    operation: Operation,
+    tx: Sender<(usize, Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
     struct JsonResponse {
-        dependees: Vec<JsonTask>,
+        dependees: Option<Vec<JsonTask>>,
     }
 
     get(
         client,
         ctx,
+        index,
         handle.clone(),
-        format!("http://{url_base}/dependees?handle={}", handle.to_hex()),
+        format!(
+            "http://{url_base}/dependees?handle={}&op={}",
+            handle.to_hex(),
+            operation as u8
+        ),
         |json: JsonResponse| {
-            Ok(Response::Parents(Some(
-                json.dependees
+            let Some(dependees) = json.dependees else {
+                return Ok(Response::Dependees(None));
+            };
+            Ok(Response::Dependees(Some(
+                dependees
                     .iter()
                     .map(|json_task| {
                         Ok::<Task, anyhow::Error>(Task {
@@ -151,27 +165,29 @@ pub(crate) fn get_dependees(
 pub(crate) fn get_child(
     client: Arc<Client>,
     ctx: egui::Context,
+    index: usize,
     handle: Handle,
     operation: Operation,
-    tx: Sender<(Handle, Result<Response>)>,
+    tx: Sender<(usize, Handle, Result<Response>)>,
     url_base: &str,
 ) {
     #[derive(serde::Deserialize)]
     struct JsonResponse {
-        child: Option<String>,
+        handle: Option<String>,
     }
 
     get(
         client,
         ctx,
+        index,
         handle.clone(),
         format!(
-            "http://{url_base}/child?handle={}+op={}",
+            "http://{url_base}/child?handle={}&op={}",
             handle.to_hex(),
             operation as u8
         ),
         |json: JsonResponse| {
-            Ok(Response::Child(json.child.and_then(|handle| {
+            Ok(Response::Child(json.handle.and_then(|handle| {
                 Handle::from_hex(&handle).context("parsing handle").ok()
             })))
         },

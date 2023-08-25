@@ -24,6 +24,7 @@ pub struct App {
 struct Storage {
     url: String,
     target: Handle,
+    operation: Operation,
 }
 
 impl Default for Storage {
@@ -31,6 +32,7 @@ impl Default for Storage {
         Self {
             url: String::new(),
             target: Handle::from_hex("0-0-0-2400000000000000").unwrap(),
+            operation: Operation::Eval,
         }
     }
 }
@@ -41,8 +43,8 @@ struct State {
     error: String,
     first_render: bool,
     client: Arc<Client>,
-    response_tx: Sender<(Handle, Result<http::Response>)>,
-    response_rx: Receiver<(Handle, Result<http::Response>)>,
+    response_tx: Sender<(usize, Handle, Result<http::Response>)>,
+    response_rx: Receiver<(usize, Handle, Result<http::Response>)>,
     graph: Option<GraphsContainer>,
 }
 
@@ -133,7 +135,11 @@ impl eframe::App for App {
             }
             ui.horizontal(|ui| {
                 if *first_render {
-                    *graph = Some(GraphsContainer::new(ui, storage.target.clone()));
+                    *graph = Some(GraphsContainer::new(
+                        ui,
+                        storage.target.clone(),
+                        storage.operation,
+                    ));
                 }
                 ui.label("Target: ");
                 if TextEdit::singleline(target_input)
@@ -144,37 +150,62 @@ impl eframe::App for App {
                     || *first_render
                 {
                     match Handle::from_hex(target_input) {
-                        Ok(h) => {
+                        Ok(handle) => {
                             error.clear();
-                            storage.target = h.clone();
-                            *graph = Some(GraphsContainer::new(ui, h));
+                            storage.target = handle.clone();
+                            *graph = Some(GraphsContainer::new(ui, handle, storage.operation));
                         }
                         Err(e) => *error = format!("{:#}", e),
                     }
                 }
             });
 
-            if ui.button("Get Parent").clicked() {
-                http::get_parents(
-                    client.clone(),
-                    ctx.clone(),
-                    &storage.target,
-                    tx.clone(),
-                    &storage.url,
+            let operation = storage.operation;
+            ui.selectable_value(
+                &mut storage.operation,
+                Operation::Eval,
+                Operation::Eval.to_string(),
+            );
+            ui.selectable_value(
+                &mut storage.operation,
+                Operation::Apply,
+                Operation::Apply.to_string(),
+            );
+            ui.selectable_value(
+                &mut storage.operation,
+                Operation::Fill,
+                Operation::Fill.to_string(),
+            );
+            if operation != storage.operation {
+                graph.as_mut().unwrap().set_operation(
+                    ui,
+                    storage.operation,
+                    storage.target.clone(),
                 );
             }
 
             if let Ok(http_result) = rx.try_recv() {
-                let handle = http_result.0;
-                match http_result.1 {
+                let index = http_result.0;
+                let handle = http_result.1;
+                match http_result.2 {
                     Ok(Response::Parents(tasks)) => {
                         if let Some(tasks) = tasks {
                             log::info!("Received tasks {:?}", tasks);
                             graph.as_mut().unwrap().set_parents(ui, handle, tasks);
                         }
                     }
+                    Ok(Response::Child(child)) => {
+                        if let Some(child) = child {
+                            graph.as_mut().unwrap().set_child(ui, index, child);
+                        }
+                    }
+                    Ok(Response::Dependees(tasks)) => {
+                        log::error!("received response tasks, {:?}", tasks);
+                        if let Some(tasks) = tasks {
+                            graph.as_mut().unwrap().merge_dependees(ui, index, tasks);
+                        }
+                    }
                     Err(e) => *error = format!("Failed http request: {}.", e.root_cause()),
-                    _ => todo!(),
                 }
             }
 
@@ -201,6 +232,10 @@ impl eframe::App for App {
             });
         });
 
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.label("Windows");
+            ui.separator();
+        });
         graph
             .as_mut()
             .unwrap()

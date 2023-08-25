@@ -19,6 +19,7 @@ use crate::{
 
 /// An element and all of its ancestors. This graph is append only.
 /// The relative locations of Ancestors should never change.
+/// Note any single Handle may only appear once in the graph.
 #[derive(Clone, Debug)]
 pub(super) struct AncestorGraph {
     inner: [Ancestor; 1],
@@ -139,7 +140,7 @@ impl AncestorGraph {
         ui: &Ui,
         coords: PlotPoint,
         closest_elem: ClosestElem,
-        request: impl FnOnce(&Handle),
+        request: impl FnOnce(usize, &Handle),
     ) {
         let Some(elem) = self.iter().nth(closest_elem.index) else {
             log::error!("Handling a click near to an element whose index no longer exists");
@@ -154,7 +155,8 @@ impl AncestorGraph {
         if elem_contains_p {
             ui.output_mut(|o| o.copied_text = elem.get_text());
             log::info!("Requesting parents");
-            request(elem.get_handle());
+            // TODO use index instead of hashmap
+            request(0, elem.get_handle());
         };
     }
 
@@ -203,8 +205,8 @@ impl AncestorGraph {
         Some(Self::get_mut_from_lineage(&mut self.inner, &lineage.1))
     }
 
-    fn get_draw_parameters(&self, index: usize) -> (PlotPoint, f32) {
-        const Y_SCALE: f32 = 0.5;
+    fn get_draw_parameters(&self, index: usize) -> (PlotPoint, f64) {
+        const Y_SCALE: f64 = 0.5;
 
         let lineage = &self.lineages.get(&self.ordering[index]).unwrap().1 .0;
 
@@ -215,7 +217,7 @@ impl AncestorGraph {
         let mut current_generation = self.inner.as_slice();
         for lineage_index in lineage {
             // Scale y for this generation
-            scale /= current_generation.len() as f32;
+            scale /= current_generation.len() as f64;
             // Increase y (by half relative to the x)
             pos[1] += scale * Y_SCALE;
             // Offset x
@@ -223,7 +225,7 @@ impl AncestorGraph {
             // |  0  |  1  |  2  |  3  |
             let step_size = scale;
             let x_step_offset_to_left_edge =
-                *lineage_index as f32 - (current_generation.len() as f32) * 0.5;
+                *lineage_index as f64 - (current_generation.len() as f64) * 0.5;
             let x_step_offset_to_center = x_step_offset_to_left_edge + 0.5;
             pos[0] += step_size * x_step_offset_to_center;
 
@@ -317,21 +319,21 @@ impl AncestorGraph {
     fn add_arrow(
         transform: &PlotTransform,
         shapes: &mut Vec<Shape>,
-        origin: (PlotPoint, f32, Arrow),
-        target: (PlotPoint, f32),
+        origin: (PlotPoint, f64, Arrow),
+        target: (PlotPoint, f64),
         color: Color32,
     ) {
-        let arrow_scale = f32::min(origin.1, target.1);
-        let tip_scale = arrow_scale as f64 / 40.0;
+        let arrow_scale = f64::min(origin.1, target.1);
+        let tip_scale = arrow_scale / 40.0;
         let stroke = Stroke::new(
-            arrow_scale * transform.dpos_dvalue_x() as f32 / 100.0,
+            (arrow_scale * transform.dpos_dvalue_x() / 100.0) as f32,
             color,
         );
         let origin_control = match origin.2 {
-            Arrow::Down => PlotPoint::new(origin.0.x, origin.0.y - origin.1 as f64),
-            Arrow::Right => PlotPoint::new(origin.0.x + origin.1 as f64, origin.0.y),
+            Arrow::Down => PlotPoint::new(origin.0.x, origin.0.y - origin.1),
+            Arrow::Right => PlotPoint::new(origin.0.x + origin.1, origin.0.y),
         };
-        let target_control = PlotPoint::new(target.0.x, target.0.y + target.1 as f64);
+        let target_control = PlotPoint::new(target.0.x, target.0.y + target.1);
         let head_start = PlotPoint::new(target.0.x - tip_scale, target.0.y + tip_scale);
         let head_end = PlotPoint::new(target.0.x + tip_scale, target.0.y + tip_scale);
         let origin = transform.position_from_point(&origin.0);
