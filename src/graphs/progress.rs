@@ -278,7 +278,7 @@ impl ProgressGraph {
     /// Returns the top left (least x, max y) point of the bounding box for
     // the task location and the bottom left for the result location.
     fn get_draw_parameters(&self, stack: &DependeeStack) -> DrawParams {
-        let mut scale = 1_000.0;
+        let mut scale = 1.0;
         let mut location = [0.0, 0.0];
         let mut current_progress = &self.inner;
         for index in stack.0.iter() {

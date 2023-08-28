@@ -233,7 +233,7 @@ impl eframe::App for App {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.label("Windows");
+            ui.heading("Windows");
             ui.separator();
         });
         graph
