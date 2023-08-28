@@ -27,7 +27,7 @@ impl Element {
     const TEXT_PIXEL_SCALE: f64 = 40.0;
 
     pub(crate) fn new(ui: &Ui, content: Handle) -> Self {
-        let rich_text = RichText::new(content.to_hex())
+        let rich_text = RichText::new(content.to_string())
             .size(Self::TEXT_RENDER_SCALE as f32)
             .monospace()
             .color(Color32::WHITE);
@@ -146,7 +146,7 @@ impl Element {
     }
 
     pub(crate) fn get_text(&self) -> String {
-        self.content.to_hex()
+        self.content.to_string()
     }
 
     pub(crate) fn get_handle(&self) -> &Handle {

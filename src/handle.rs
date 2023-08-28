@@ -114,7 +114,6 @@ impl Handle {
             // Handle structure
             // hash (8 bytes) | hash (8 bytes) | size (8 bytes) | hash (7 bytes) | metadata (1 byte)
             let mut hash = [0u8; CANONICAL_HASH_LENGTH];
-            println!("{:?}", handle_content);
             hash[..UINT64_LENGTH * 2].copy_from_slice(&handle_content[..UINT64_LENGTH * 2]);
             hash[UINT64_LENGTH * 2..]
                 .copy_from_slice(&handle_content[UINT64_LENGTH * 3..HANDLE_LENGTH - 1]);
@@ -184,12 +183,6 @@ impl Handle {
     }
 }
 
-impl Display for Task {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}: {}", self.handle.to_hex(), self.operation))
-    }
-}
-
 impl TryFrom<u8> for Operation {
     type Error = anyhow::Error;
 
@@ -227,19 +220,74 @@ impl Operation {
     pub fn get_color(&self) -> egui::Color32 {
         match self {
             Operation::Apply => egui::Color32::GREEN,
-            Operation::Eval => egui::Color32::BLUE,
+            Operation::Eval => egui::Color32::from_rgb(20, 20, 255),
             Operation::Fill => egui::Color32::RED,
         }
     }
 }
 
-impl Handle {
-    pub(crate) fn get_literal_content(&self) -> Option<&[u8]> {
-        if let Content::Literal(ref content) = self.content {
-            Some(&content[..self.size as usize])
-        } else {
-            None
-        }
+impl Display for Handle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // strict Tree, 3 entries, local id d9
+        // shallow Thunk, 8 entries, canonical id 0x0123456
+        // strict Blob, 8 bytes, content "unused"
+        // strict Blob, 2 bytes, content 0x91ABCD
+        // strict Blob, 2 bytes, local id ab
+        let accessibility = match self.accessibility {
+            Accessibility::Strict => "strict",
+            Accessibility::Shallow => "shallow",
+            Accessibility::Lazy => "lazy",
+        };
+        let content_type = match self.content {
+            Content::Other { object_type, .. } => object_type,
+            Content::Literal(_) => Object::Blob,
+        };
+        let size = self.size;
+        let size_desc = match content_type {
+            Object::Blob => "bytes",
+            _ => "entries",
+        };
+
+        let identifier = match &self.content {
+            Content::Other { data, .. } => match data {
+                Nonliteral::Canonical(hash) => {
+                    // 8 hex digits of hash
+                    format!(
+                        "canonical id 0x{:0>8}",
+                        hash.iter()
+                            .take(4)
+                            .map(|byte| format!("{:x}", byte))
+                            .collect::<String>()
+                    )
+                }
+                Nonliteral::Local(id) => format!("local id 0x{:x}", id),
+            },
+            Content::Literal(content) => {
+                let valid_content = &content[..self.size as usize];
+                format!(
+                    "content {}",
+                    // Try to parse as string. If success, return the string.
+                    if let (true, Ok(string)) = (
+                        valid_content.iter().all(|b| b.is_ascii_alphanumeric()),
+                        String::from_utf8(valid_content.to_vec())
+                    ) {
+                        format!("\"{}\"", string,)
+                    } else {
+                        // Otherwise, return a hex string.
+                        format!(
+                            "0x{}",
+                            valid_content
+                                .iter()
+                                .map(|byte| format!("{:0>2x}", byte))
+                                .collect::<String>()
+                        )
+                    }
+                )
+            }
+        };
+        f.write_fmt(format_args!(
+            "{accessibility} {content_type}, {size} {size_desc}, {identifier}"
+        ))
     }
 }
 
@@ -288,6 +336,17 @@ impl From<Object> for u8 {
             Object::Blob => 2,
             Object::Tag => 3,
         }
+    }
+}
+
+impl Display for Object {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Object::Blob => "Blob",
+            Object::Tree => "Tree",
+            Object::Thunk => "Thunk",
+            Object::Tag => "Tag",
+        })
     }
 }
 
