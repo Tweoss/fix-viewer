@@ -268,7 +268,7 @@ impl Display for Handle {
                     "content {}",
                     // Try to parse as string. If success, return the string.
                     if let (true, Ok(string)) = (
-                        valid_content.iter().all(|b| b.is_ascii_alphanumeric()),
+                        valid_content.iter().all(|c| !c.is_ascii_control()),
                         String::from_utf8(valid_content.to_vec())
                     ) {
                         format!("\"{}\"", string)
@@ -290,7 +290,11 @@ impl Display for Handle {
                     result: &mut String,
                 ) {
                     if let Ok(array) = slice.try_into() {
-                        result.push_str(&format!(" ({})", array_to_integer(array)))
+                        result.push_str(&format!(
+                            " ({}: {})",
+                            std::any::type_name::<I>(),
+                            array_to_integer(array)
+                        ))
                     }
                 }
 
