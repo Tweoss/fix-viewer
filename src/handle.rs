@@ -264,14 +264,14 @@ impl Display for Handle {
             },
             Content::Literal(content) => {
                 let valid_content = &content[..self.size as usize];
-                format!(
+                let mut base = format!(
                     "content {}",
                     // Try to parse as string. If success, return the string.
                     if let (true, Ok(string)) = (
                         valid_content.iter().all(|b| b.is_ascii_alphanumeric()),
                         String::from_utf8(valid_content.to_vec())
                     ) {
-                        format!("\"{}\"", string,)
+                        format!("\"{}\"", string)
                     } else {
                         // Otherwise, return a hex string.
                         format!(
@@ -282,7 +282,24 @@ impl Display for Handle {
                                 .collect::<String>()
                         )
                     }
-                )
+                );
+
+                fn try_append<A, I: Display, S: TryInto<A>>(
+                    slice: S,
+                    array_to_integer: impl Fn(A) -> I,
+                    result: &mut String,
+                ) {
+                    if let Ok(array) = slice.try_into() {
+                        result.push_str(&format!(" ({})", array_to_integer(array)))
+                    }
+                }
+
+                try_append(valid_content, u8::from_le_bytes, &mut base);
+                try_append(valid_content, u16::from_le_bytes, &mut base);
+                try_append(valid_content, u32::from_le_bytes, &mut base);
+                try_append(valid_content, u64::from_le_bytes, &mut base);
+
+                base
             }
         };
         f.write_fmt(format_args!(

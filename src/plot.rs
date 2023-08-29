@@ -30,7 +30,7 @@ impl Element {
         let rich_text = RichText::new(content.to_string())
             .size(Self::TEXT_RENDER_SCALE as f32)
             .monospace()
-            .color(Color32::WHITE);
+            .color(ui.visuals().widgets.active.fg_stroke.color);
         let galley = WidgetText::RichText(rich_text).into_galley(
             ui,
             Some(false),
@@ -85,6 +85,7 @@ impl Element {
         shapes: &mut Vec<Shape>,
         (center, zoom): (PlotPoint, f64),
         highlight: bool,
+        fg_stroke_color: Color32,
     ) {
         let transform = |pos: PlotPoint| -> Pos2 {
             Self::graph_pos_to_screen_pos(pos, transform, zoom, center)
@@ -103,10 +104,10 @@ impl Element {
         shapes.push(Shape::rect_stroke(
             mesh_bounds,
             1.0,
-            Stroke::new(2.0, Color32::WHITE),
+            Stroke::new(2.0, fg_stroke_color),
         ));
         if highlight {
-            shapes.push(Shape::rect_filled(mesh_bounds, 1.0, Color32::WHITE));
+            shapes.push(Shape::rect_filled(mesh_bounds, 1.0, fg_stroke_color));
         }
     }
 

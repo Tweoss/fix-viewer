@@ -54,9 +54,15 @@ enum Arrow {
 }
 
 impl PlotItem for AncestorGraph {
-    fn shapes(&self, _ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+    fn shapes(&self, ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
         for (index, el) in self.iter().enumerate() {
-            el.add_shapes(transform, shapes, self.get_draw_parameters(index), false);
+            el.add_shapes(
+                transform,
+                shapes,
+                self.get_draw_parameters(index),
+                false,
+                ui.visuals().widgets.active.fg_stroke.color,
+            );
         }
         self.add_arrows(transform, shapes);
     }
@@ -153,7 +159,7 @@ impl AncestorGraph {
         let p = coords;
         let elem_contains_p = min_x <= p.x && p.x <= max_x && min_y <= p.y && p.y <= max_y;
         if elem_contains_p {
-            ui.output_mut(|o| o.copied_text = elem.get_text());
+            ui.output_mut(|o| o.copied_text = elem.get_handle().to_hex());
             log::info!("Requesting parents");
             // TODO use index instead of hashmap
             request(0, elem.get_handle());

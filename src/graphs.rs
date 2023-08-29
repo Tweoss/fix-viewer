@@ -39,7 +39,7 @@ impl GraphsContainer {
                 .data_aspect(1.0)
                 .auto_bounds_x()
                 .auto_bounds_y()
-                .show_axes([true; 2])
+                .show_axes([false; 2])
                 .show_x(false)
                 .show_y(false)
                 .show(ui, |plot_ui| {
@@ -71,7 +71,7 @@ impl GraphsContainer {
                 .data_aspect(1.0)
                 .auto_bounds_x()
                 .auto_bounds_y()
-                .show_axes([true; 2])
+                .show_axes([false; 2])
                 .show_x(false)
                 .show_y(false)
                 .show(ui, |plot_ui| {

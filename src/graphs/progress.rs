@@ -63,19 +63,20 @@ enum Arrow {
 }
 
 impl PlotItem for ProgressGraph {
-    fn shapes(&self, _ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
+    fn shapes(&self, ui: &mut Ui, transform: &PlotTransform, shapes: &mut Vec<Shape>) {
         for (i, stack) in self.ordering.iter().enumerate() {
             let progress = self.get_from_stack(stack);
             let draw_params = self.get_draw_parameters(stack);
             let bounds = progress.task.0.bounds(draw_params.task);
+            let color = ui.visuals().widgets.active.fg_stroke.color;
             // Draw task's element.
             progress
                 .task
                 .0
-                .add_shapes(transform, shapes, draw_params.task, false);
+                .add_shapes(transform, shapes, draw_params.task, false, color);
             // Draw result if exists.
             if let Some(result) = &progress.result {
-                result.add_shapes(transform, shapes, draw_params.result, false);
+                result.add_shapes(transform, shapes, draw_params.result, false, color);
             }
             // Draw an arrow to the left.
             // The top level task is not the dependee of others, so only draw an
@@ -86,7 +87,7 @@ impl PlotItem for ProgressGraph {
                 draw_params.task.0 = [bounds.min()[0], bounds.center().y].into();
                 draw_params.result.0 =
                     [bounds.center().x - draw_params.task.1, bounds.center().y].into();
-                Self::add_arrow(transform, shapes, draw_params, Arrow::Left, Color32::WHITE);
+                Self::add_arrow(transform, shapes, draw_params, Arrow::Left, color);
             }
             // Draw operation arrow
             // Take the bottom center of the task and top center of result if it exists.
@@ -215,7 +216,7 @@ impl ProgressGraph {
         };
 
         if contains(&progress.task.0, params.task) {
-            ui.output_mut(|o| o.copied_text = progress.task.0.get_text());
+            ui.output_mut(|o| o.copied_text = progress.task.0.get_handle().to_hex());
             request(
                 closest_elem.index,
                 progress.task.0.get_handle().clone(),
@@ -226,7 +227,9 @@ impl ProgressGraph {
             .as_ref()
             .is_some_and(|r| contains(r, params.result))
         {
-            ui.output_mut(|o| o.copied_text = progress.result.clone().unwrap().get_text());
+            ui.output_mut(|o| {
+                o.copied_text = progress.result.clone().unwrap().get_handle().to_hex()
+            });
         }
     }
 
